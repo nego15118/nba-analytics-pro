@@ -1344,3 +1344,142 @@ canvas {
   from { transform: translateX(100%); opacity: 0; }
   to { transform: translateX(0); opacity: 1; }
 }
+
+/* ==================== RESPONSIVE STYLES ==================== */
+/* Menú móvil */
+.mobile-menu-btn {
+  display: none;
+  position: fixed;
+  top: 15px;
+  left: 15px;
+  background: var(--primary-color);
+  color: white;
+  border: none;
+  padding: 12px;
+  border-radius: 5px;
+  z-index: 1001;
+  cursor: pointer;
+  font-size: 1.2rem;
+}
+
+/* Pantallas medianas (tablets) */
+@media (max-width: 992px) {
+  body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+  }
+  
+  .sidebar {
+    position: fixed;
+    width: 100%;
+    height: auto;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease-out;
+    z-index: 1000;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+  }
+  
+  .sidebar.active {
+    max-height: 100vh;
+    padding-bottom: 20px;
+  }
+  
+  .mobile-menu-btn {
+    display: block;
+  }
+  
+  .main-content {
+    margin: 70px 15px 15px; /* Más margen arriba para el botón */
+    padding: 15px;
+  }
+  
+  .logo {
+    padding-top: 20px;
+  }
+}
+
+/* Ajustes para tablas */
+@media (max-width: 992px) {
+  .table-container {
+    overflow-x: auto;
+  }
+  
+  .stats-table {
+    min-width: 600px; /* Permite scroll horizontal */
+  }
+}
+
+/* Pantallas pequeñas (móviles) */
+@media (max-width: 768px) {
+  .games-container {
+    grid-template-columns: 1fr;
+  }
+  
+  .probability-grid, .analysis-grid, .projection-grid {
+    grid-template-columns: 1fr;
+    gap: 15px;
+  }
+  
+  .filters-container {
+    grid-template-columns: 1fr;
+  }
+  
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  
+  .table-actions {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .refresh-btn, .project-btn {
+    width: 100%;
+    justify-content: center;
+  }
+  
+  /* Ajustes para el modal */
+  .modal-content {
+    width: 95%;
+    margin: 20px auto;
+    padding: 15px;
+  }
+  
+  .teams-header {
+    flex-direction: column;
+  }
+  
+  .vs-circle {
+    margin: 15px 0;
+    transform: rotate(90deg);
+  }
+}
+
+/* Pantallas muy pequeñas */
+@media (max-width: 576px) {
+  .quarters {
+    font-size: 0.8rem;
+  }
+  
+  .team-logo {
+    width: 25px;
+    height: 25px;
+  }
+  
+  .team-name {
+    font-size: 0.9rem;
+  }
+  
+  .summary-stats {
+    grid-template-columns: 1fr;
+  }
+  
+  /* Botones en cards de juego */
+  .game-card button {
+    width: 100%;
+    margin-bottom: 5px;
+  }
+}

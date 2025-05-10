@@ -1,6 +1,5 @@
 // Configuración global
-//const API_URL = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard";
-const API_URL = "https://cors-anywhere.herokuapp.com/https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard";
+const API_URL = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard";
 const TEAMS_API = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams";
 const HISTORICAL_DAYS_LIMIT = 360; // Límite de días para análisis histórico
 const CACHE_DURATION = 10 * 60 * 60 * 1000; // 10 horas en milisegundos
@@ -106,6 +105,24 @@ async function fetchGamesForDate(dateStr) {
 
 // Inicialización
 document.addEventListener('DOMContentLoaded', async () => {
+  // Crea botón de menú móvil
+const mobileMenuBtn = document.createElement('button');
+mobileMenuBtn.className = 'mobile-menu-btn';
+mobileMenuBtn.innerHTML = '<i class="fas fa-bars"></i>';
+document.body.appendChild(mobileMenuBtn);
+
+// Toggle del menú
+mobileMenuBtn.addEventListener('click', () => {
+  document.querySelector('.sidebar').classList.toggle('active');
+});
+
+// Cierra menú al seleccionar opción
+document.querySelectorAll('.nav-link').forEach(link => {
+  link.addEventListener('click', () => {
+    document.querySelector('.sidebar').classList.remove('active');
+  });
+});
+
   await loadTeams();
   setupNavigation();
   await loadPage(currentPage);
@@ -146,6 +163,8 @@ function setupNavigation() {
   navLinks.forEach(link => {
     link.addEventListener('click', async (e) => {
       e.preventDefault();
+      document.querySelector('.sidebar').classList.remove('active');
+      document.querySelector('.mobile-menu-btn').innerHTML = '<i class="fas fa-bars"></i>';
       
       // Remover clase active de todos los links
       navLinks.forEach(l => l.classList.remove('active'));
