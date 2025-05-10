@@ -1,5 +1,6 @@
 // Configuración global
-const API_URL = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard";
+//const API_URL = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard";
+const API_URL = "https://cors-anywhere.herokuapp.com/https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard";
 const TEAMS_API = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams";
 const HISTORICAL_DAYS_LIMIT = 360; // Límite de días para análisis histórico
 const CACHE_DURATION = 10 * 60 * 60 * 1000; // 10 horas en milisegundos
