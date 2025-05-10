@@ -8,7 +8,7 @@ const ODDS_API = "https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?ap
 // Variables globales
 let allTeams = [];
 let teamLogos = {};
-let currentPage = 'today';
+let currentPage = 'probabilities';
 let liveGamesInterval = null;
 let historicalData = {};
 let regressionModels = {};
@@ -117,6 +117,7 @@ mobileMenuBtn.addEventListener('click', () => {
 });
 
 // Cierra menú al seleccionar opción
+
 document.querySelectorAll('.nav-link').forEach(link => {
   link.addEventListener('click', () => {
     document.querySelector('.sidebar').classList.remove('active');
@@ -139,6 +140,8 @@ document.querySelectorAll('.nav-link').forEach(link => {
 // Cargar todos los equipos
 async function loadTeams() {
   try {
+
+
     const response = await fetch(TEAMS_API);
     const data = await response.json();
     
@@ -201,14 +204,69 @@ function setupNavigation() {
       
       // Configurar intervalos si es la página de partidos de hoy
       if (currentPage === 'today') {
-        liveGamesInterval = setInterval(fetchAndDisplayTodayGames, 30000); // Actualizar cada 30 segundos
+        liveGamesInterval = setInterval(fetchAndDisplayTodayGames, 30000);
         liveGamesCheckInterval = setInterval(() => {
           fetchAndDisplayTodayGames();
-        }, 60000); // Verificar notificaciones cada minuto
+        }, 60000);
       }
     });
   });
 }
+
+async function loadPage(page) {
+  const container = document.getElementById('page-content');
+  
+  // Solo mostrar spinner si no hay contenido cargado previamente
+  if (!container.innerHTML.includes('page-header')) {
+    container.innerHTML = '<div class="spinner"></div>';
+  }
+
+  try {
+    switch(page) {
+      case 'today':
+        if (!document.getElementById('today-games')) {
+          await loadTodayGames(container);
+        }
+        break;
+      case 'historical':
+        if (!document.getElementById('historical-table')) {
+          await loadHistoricalGames(container);
+        }
+        break;
+      case 'probabilities':
+        if (!document.getElementById('regression-chart')) {
+          await loadProbabilities(container);
+        } else {
+          // Solo actualizar la UI sin recargar datos
+          updateRegressionUI();
+        }
+        break;
+      case 'projection':
+        if (!document.getElementById('projection-results')) {
+          await loadProjection(container);
+        }
+        break;
+      case 'backtesting':
+        if (!document.getElementById('backtest-results')) {
+          await loadBacktesting(container);
+        }
+        break;
+      default:
+        if (!document.getElementById('regression-chart')) {
+          await loadProbabilities(container);
+        }
+    }
+  } catch (error) {
+    console.error(`Error loading ${page}:`, error);
+    container.innerHTML = `
+      <div class="error">
+        <i class="fas fa-exclamation-triangle"></i>
+        <p>Error al cargar la página. Intenta recargar.</p>
+      </div>
+    `;
+  }
+}
+
 
 function saveHistoricalState() {
   pageState.historical = {
@@ -312,24 +370,7 @@ function restorePageState() {
 }
 
 // Cargar página específica
-async function loadPage(page) {
-  const pageContent = document.getElementById('page-content');
-  pageContent.innerHTML = '<div class="spinner"></div>';
-  
-  try {
-    switch(page) {
-      case 'today': await loadTodayGames(pageContent); break;
-      case 'historical': await loadHistoricalGames(pageContent); break;
-      case 'probabilities': await loadProbabilities(pageContent); break;
-      case 'projection': await loadProjection(pageContent); break;
-      case 'backtesting': await loadBacktesting(pageContent); break;
-      default: await loadTodayGames(pageContent);
-    }
-  } catch (error) {
-    console.error(`Error loading ${page} page:`, error);
-    showError("Error al cargar los datos. Intenta nuevamente.");
-  }
-}
+
 
 // 1. PARTIDOS HOY (Y EN VIVO)
 async function loadTodayGames(container) {
@@ -701,12 +742,12 @@ async function loadProbabilities(container) {
       </button>
     </div>
     
-    <div class="info-box" style="margin-bottom: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 8px; border-left: 4px solid var(--primary-color);">
-      <h3 style="color: var(--primary-color); margin-bottom: 10px;"><i class="fas fa-info-circle"></i> ¿Qué es este análisis?</h3>
-      <p style="margin-bottom: 10px;">
+    <div class="info-box">
+      <h3><i class="fas fa-info-circle"></i> ¿Qué es este análisis?</h3>
+      <p>
         Este análisis utiliza <strong>regresión lineal</strong> para predecir el puntaje final de un equipo basado en su desempeño en los primeros tres cuartos.
       </p>
-      <p style="margin-bottom: 10px;">
+      <p>
         <strong>¿Cómo interpretar los resultados?</strong><br>
         - <strong>R² (Correlación):</strong> Indica qué tan bien se ajusta el modelo (0 = mal, 1 = perfecto)<br>
         - <strong>RMSE (Error):</strong> Muestra el margen de error promedio en puntos<br>
@@ -773,6 +814,7 @@ async function loadProbabilities(container) {
           </tr>
         </thead>
         <tbody id="teams-regression">
+          <!-- Los datos se cargarán aquí -->
         </tbody>
       </table>
     </div>
@@ -794,11 +836,13 @@ async function loadProbabilities(container) {
           </tr>
         </thead>
         <tbody id="regression-games-data">
+          <!-- Los datos se cargarán aquí -->
         </tbody>
       </table>
     </div>
   `;
   
+  // Configurar fechas por defecto (últimos 360 días)
   const endDate = new Date();
   const startDate = new Date();
   startDate.setDate(endDate.getDate() - HISTORICAL_DAYS_LIMIT);
@@ -806,17 +850,26 @@ async function loadProbabilities(container) {
   document.getElementById('prob-start-date').valueAsDate = startDate;
   document.getElementById('prob-end-date').valueAsDate = endDate;
   
+  // Llenar el selector de equipos
   fillTeamFilter('prob-team');
   
   // Configurar event listeners
-  document.getElementById('refresh-probabilities').addEventListener('click', () => {
-    calculateAllRegressions(true); // true fuerza la actualización
+  document.getElementById('refresh-probabilities').addEventListener('click', async () => {
+    const loadingDiv = document.getElementById('regression-loading');
+    loadingDiv.style.display = 'block';
+    try {
+      await calculateAllRegressions(true); // true fuerza la actualización
+    } catch (error) {
+      console.error("Error al actualizar modelos:", error);
+      showError("Error al actualizar los modelos");
+    } finally {
+      loadingDiv.style.display = 'none';
+    }
   });
   
   document.getElementById('prob-team').addEventListener('change', async () => {
     const loadingDiv = document.getElementById('regression-loading');
     loadingDiv.style.display = 'block';
-    
     try {
       await updateRegressionData();
     } catch (error) {
@@ -826,9 +879,6 @@ async function loadProbabilities(container) {
       loadingDiv.style.display = 'none';
     }
   });
-  
-  document.getElementById('prob-start-date').addEventListener('change', calculateAllRegressions);
-  document.getElementById('prob-end-date').addEventListener('change', calculateAllRegressions);
   
   document.getElementById('run-backtest-from-regression').addEventListener('click', async () => {
     const teamAbbr = document.getElementById('prob-team').value;
@@ -863,22 +913,60 @@ async function loadProbabilities(container) {
     document.getElementById('run-backtest').click();
   });
   
-  await calculateAllRegressions();
+  // Mostrar datos existentes si los hay, sin recalcular
+  if (regressionCache.data) {
+    displayRegressionStats(regressionCache.data.teamStats);
+    updateLastUpdatedText();
+    
+    const selectedTeam = document.getElementById('prob-team')?.value;
+    if (selectedTeam && regressionCache.data.regressionModels[selectedTeam]) {
+      currentRegressionData = regressionCache.data.regressionModels[selectedTeam];
+      updateRegressionData();
+    }
+  } else {
+    // Si no hay datos en caché, mostrar estado vacío
+    document.getElementById('teams-regression').innerHTML = `
+      <tr>
+        <td colspan="7" style="text-align: center;">
+          <p>No hay datos cargados. Haz clic en "Actualizar Modelos" para comenzar.</p>
+        </td>
+      </tr>
+    `;
+  }
+}
+
+// Función auxiliar para llenar el filtro de equipos
+function fillTeamFilter(selectId) {
+  const select = document.getElementById(selectId);
+  select.innerHTML = '<option value="">Selecciona un equipo</option>';
+  
+  allTeams.forEach(team => {
+    const option = document.createElement('option');
+    option.value = team.abbreviation;
+    option.textContent = team.displayName;
+    select.appendChild(option);
+  });
+  
+  // Si hay un estado guardado, restaurar la selección
+  if (pageState.probabilities.team) {
+    select.value = pageState.probabilities.team;
+  }
 }
 
 async function calculateAllRegressions(forceRefresh = false) {
-  const startDate = document.getElementById('prob-start-date').value;
-  const endDate = document.getElementById('prob-end-date').value;
+  const startDate = document.getElementById('prob-start-date')?.value;
+  const endDate = document.getElementById('prob-end-date')?.value;
   const statsContainer = document.getElementById('teams-regression');
   
   // Verificar caché (si no se fuerza actualización)
   const now = new Date();
-  const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
+  const cacheThreshold = new Date(now.getTime() - CACHE_DURATION);
   
-  if (!forceRefresh && regressionCache.data && regressionCache.lastUpdated > tenMinutesAgo) {
+  if (!forceRefresh && regressionCache.data && regressionCache.lastUpdated > cacheThreshold) {
+    console.log("Usando datos en caché sin recálculo...");
     displayRegressionStats(regressionCache.data.teamStats);
     
-    const selectedTeam = document.getElementById('prob-team').value;
+    const selectedTeam = document.getElementById('prob-team')?.value;
     if (selectedTeam && regressionCache.data.regressionModels[selectedTeam]) {
       currentRegressionData = regressionCache.data.regressionModels[selectedTeam];
       updateRegressionData();
@@ -888,7 +976,10 @@ async function calculateAllRegressions(forceRefresh = false) {
     return;
   }
   
-  statsContainer.innerHTML = '<tr><td colspan="7" style="text-align: center;"><div class="spinner"></div></td></tr>';
+  // Mostrar spinner solo si no hay datos en caché o se fuerza actualización
+  if (!regressionCache.data || forceRefresh) {
+    statsContainer.innerHTML = '<tr><td colspan="7" style="text-align: center;"><div class="spinner"></div></td></tr>';
+  }
   
   if (!startDate || !endDate) {
     showError("Por favor selecciona ambas fechas");
@@ -903,50 +994,125 @@ async function calculateAllRegressions(forceRefresh = false) {
   try {
     const dateRange = getDatesBetween(startDate, endDate);
     const allGames = [];
+    const loadingToast = showToast("Cargando datos históricos...", "info");
     
-    for (const date of dateRange) {
-      const games = await fetchGamesForDate(date);
-      allGames.push(...games);
+    // Mostrar progreso para muchos días
+    if (dateRange.length > 30) {
+      showToast(`Analizando ${dateRange.length} días de partidos...`, "info");
     }
     
-    regressionModels = {};
+    // Recopilar todos los juegos en el rango de fechas
+    for (const date of dateRange) {
+      try {
+        const games = await fetchGamesForDate(date);
+        allGames.push(...games);
+      } catch (error) {
+        console.error(`Error fetching games for ${date}:`, error);
+      }
+    }
+    
+    // Procesar modelos para cada equipo
+    const newRegressionModels = {};
     const teamStats = [];
+    const teamProcessingPromises = [];
     
     allTeams.forEach(team => {
-      const teamGames = allGames.filter(game => 
-        game.homeTeam.abbreviation === team.abbreviation || 
-        game.awayTeam.abbreviation === team.abbreviation
+      teamProcessingPromises.push(
+        new Promise(resolve => {
+          setTimeout(async () => { // Pequeño delay para evitar bloqueo
+            const teamGames = allGames.filter(game => 
+              game.homeTeam.abbreviation === team.abbreviation || 
+              game.awayTeam.abbreviation === team.abbreviation
+            );
+            
+            if (teamGames.length > 10) { // Mínimo 10 partidos para análisis
+              // Usar modelo existente si está disponible y no se fuerza actualización
+              if (!forceRefresh && regressionModels[team.abbreviation]) {
+                newRegressionModels[team.abbreviation] = regressionModels[team.abbreviation];
+                teamStats.push(regressionModels[team.abbreviation]);
+              } else {
+                const model = calculateTeamRegression(team, teamGames);
+                if (model) {
+                  newRegressionModels[team.abbreviation] = model;
+                  teamStats.push(model);
+                }
+              }
+            }
+            resolve();
+          }, 0);
+        })
       );
-      
-      if (teamGames.length > 10) {
-        const model = calculateTeamRegression(team, teamGames);
-        regressionModels[team.abbreviation] = model;
-        teamStats.push(model);
-      }
     });
+    
+    await Promise.all(teamProcessingPromises);
+    
+    // Ordenar equipos por calidad del modelo (R²)
+    teamStats.sort((a, b) => b.r2 - a.r2);
     
     // Actualizar la caché
     regressionCache = {
       lastUpdated: new Date(),
       data: {
         teamStats,
-        regressionModels
+        regressionModels: newRegressionModels
       }
     };
     
+    // Actualizar los modelos globales
+    regressionModels = newRegressionModels;
+    
+    // Mostrar resultados
     displayRegressionStats(teamStats);
     updateLastUpdatedText();
     
-    const selectedTeam = document.getElementById('prob-team').value;
+    // Actualizar datos del equipo seleccionado si existe
+    const selectedTeam = document.getElementById('prob-team')?.value;
     if (selectedTeam && regressionModels[selectedTeam]) {
       currentRegressionData = regressionModels[selectedTeam];
       updateRegressionData();
     }
     
+    showToast("Modelos actualizados correctamente", "success");
+    
   } catch (error) {
     console.error("Error calculating regressions:", error);
     showError("Error al calcular los modelos. Intenta nuevamente.");
+    
+    // Si hay un error pero tenemos datos en caché, usarlos
+    if (regressionCache.data) {
+      showToast("Usando datos en caché debido al error", "warning");
+      displayRegressionStats(regressionCache.data.teamStats);
+      
+      const selectedTeam = document.getElementById('prob-team')?.value;
+      if (selectedTeam && regressionCache.data.regressionModels[selectedTeam]) {
+        currentRegressionData = regressionCache.data.regressionModels[selectedTeam];
+        updateRegressionData();
+      }
+    }
+  } finally {
+    if (document.getElementById('regression-loading')) {
+      document.getElementById('regression-loading').style.display = 'none';
+    }
   }
+}
+
+// Función auxiliar para mostrar notificaciones toast
+function showToast(message, type = 'info') {
+  const toast = document.createElement('div');
+  toast.className = `toast-notification ${type}`;
+  toast.innerHTML = `
+    <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i>
+    <span>${message}</span>
+  `;
+  
+  document.body.appendChild(toast);
+  
+  setTimeout(() => {
+    toast.classList.add('fade-out');
+    setTimeout(() => toast.remove(), 500);
+  }, 3000);
+  
+  return toast;
 }
 
 function calculateTeamRegression(team, games) {
@@ -2678,6 +2844,36 @@ function showError(message) {
     <span>${message}</span>
   `;
   
+// ... otras funciones ...
+
+function showError(message) {
+  const errorDiv = document.createElement('div');
+  errorDiv.className = 'error-message';
+  errorDiv.innerHTML = `
+    <i class="fas fa-exclamation-circle"></i>
+    <span>${message}</span>
+  `;
+  document.body.appendChild(errorDiv);
+  setTimeout(() => errorDiv.remove(), 5000);
+}
+
+function updateLastUpdatedText() {
+  const lastUpdatedElement = document.getElementById('last-updated');
+  if (lastUpdatedElement && regressionCache.lastUpdated) {
+    const options = { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric', 
+      hour: '2-digit', 
+      minute: '2-digit',
+      second: '2-digit'
+    };
+    lastUpdatedElement.textContent = `Última actualización: ${regressionCache.lastUpdated.toLocaleDateString('es-ES', options)}`;
+  }
+}
+
+
+
   document.body.appendChild(errorDiv);
   setTimeout(() => errorDiv.remove(), 5000);
 }
