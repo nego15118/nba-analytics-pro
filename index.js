@@ -27,6 +27,8 @@ let pageState = {
 // Agrega esto con las otras variables globales
 let notificationPermission = false;
 let liveGamesCheckInterval = null;
+let bettingJournal = JSON.parse(localStorage.getItem('bettingJournal')) || [];
+let kellyCalculations = {};
 const notificationTimers = {};
 
 
@@ -117,7 +119,6 @@ mobileMenuBtn.addEventListener('click', () => {
 });
 
 // Cierra menú al seleccionar opción
-
 document.querySelectorAll('.nav-link').forEach(link => {
   link.addEventListener('click', () => {
     document.querySelector('.sidebar').classList.remove('active');
@@ -141,7 +142,7 @@ document.querySelectorAll('.nav-link').forEach(link => {
 async function loadTeams() {
   try {
 
-
+    
     const response = await fetch(TEAMS_API);
     const data = await response.json();
     
@@ -204,10 +205,10 @@ function setupNavigation() {
       
       // Configurar intervalos si es la página de partidos de hoy
       if (currentPage === 'today') {
-        liveGamesInterval = setInterval(fetchAndDisplayTodayGames, 30000);
+        liveGamesInterval = setInterval(fetchAndDisplayTodayGames, 30000); // Actualizar cada 30 segundos
         liveGamesCheckInterval = setInterval(() => {
           fetchAndDisplayTodayGames();
-        }, 60000);
+        }, 60000); // Verificar notificaciones cada minuto
       }
     });
   });
@@ -215,46 +216,31 @@ function setupNavigation() {
 
 async function loadPage(page) {
   const container = document.getElementById('page-content');
-  
-  // Solo mostrar spinner si no hay contenido cargado previamente
-  if (!container.innerHTML.includes('page-header')) {
-    container.innerHTML = '<div class="spinner"></div>';
-  }
+  container.innerHTML = '<div class="spinner"></div>';
 
   try {
     switch(page) {
+      case 'bet-journal':
+        await loadBetJournal(container);
+        break;
+
       case 'today':
-        if (!document.getElementById('today-games')) {
-          await loadTodayGames(container);
-        }
+        await loadTodayGames(container);
         break;
       case 'historical':
-        if (!document.getElementById('historical-table')) {
-          await loadHistoricalGames(container);
-        }
+        await loadHistoricalGames(container);
         break;
       case 'probabilities':
-        if (!document.getElementById('regression-chart')) {
-          await loadProbabilities(container);
-        } else {
-          // Solo actualizar la UI sin recargar datos
-          updateRegressionUI();
-        }
+        await loadProbabilities(container);
         break;
       case 'projection':
-        if (!document.getElementById('projection-results')) {
-          await loadProjection(container);
-        }
+        await loadProjection(container);
         break;
       case 'backtesting':
-        if (!document.getElementById('backtest-results')) {
-          await loadBacktesting(container);
-        }
+        await loadBacktesting(container);
         break;
       default:
-        if (!document.getElementById('regression-chart')) {
-          await loadProbabilities(container);
-        }
+        await loadProbabilities(container);
     }
   } catch (error) {
     console.error(`Error loading ${page}:`, error);
@@ -265,6 +251,47 @@ async function loadPage(page) {
       </div>
     `;
   }
+}
+
+async function loadBettingJournal(container) {
+  container.innerHTML = `
+    <div class="page-header">
+      <h2><i class="fas fa-book"></i> Diario de Apuestas</h2>
+      <button class="refresh-btn" id="export-journal">
+        <i class="fas fa-file-export"></i> Exportar
+      </button>
+    </div>
+    
+    <div class="journal-container">
+      <div class="journal-analysis">
+        <h3><i class="fas fa-calculator"></i> Análisis Kelly</h3>
+        <div class="kelly-stats" id="kelly-stats">
+          <!-- Estadísticas Kelly se cargarán aquí -->
+        </div>
+        <div class="kelly-chart-container">
+          <canvas id="kelly-chart"></canvas>
+        </div>
+      </div>
+      
+      <div class="journal-entries">
+        <div class="journal-header">
+          <h3><i class="fas fa-clipboard-list"></i> Registros</h3>
+          <button class="refresh-btn" id="add-entry">
+            <i class="fas fa-plus"></i> Nueva Entrada
+          </button>
+        </div>
+        <div class="entries-list" id="entries-list">
+          <!-- Entradas del diario se cargarán aquí -->
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('export-journal').addEventListener('click', exportJournal);
+  document.getElementById('add-entry').addEventListener('click', showNewEntryForm);
+  
+  renderJournalEntries();
+  calculateKellyStats();
 }
 
 
@@ -518,6 +545,446 @@ function displayLiveGames(games, container) {
       showLiveAnalysisModal(game);
     });
   });
+}
+
+// Añadir esta función para cargar el diario
+async function loadBetJournal(container) {
+  container.innerHTML = `
+    <div class="page-header">
+      <h2><i class="fas fa-book"></i> Diario de Apuestas</h2>
+      <button class="refresh-btn" id="export-bets">
+        <i class="fas fa-file-export"></i> Exportar
+      </button>
+    </div>
+    
+    <div class="info-box">
+      <h3><i class="fas fa-info-circle"></i> ¿Qué es el Diario de Apuestas?</h3>
+      <p>
+        Registra todas tus apuestas y analiza su desempeño usando el criterio de Kelly para optimizar tus stakes.
+      </p>
+      <p>
+        <strong>Criterio de Kelly:</strong> Calcula el porcentaje óptimo de tu bankroll a apostar basado en la ventaja percibida.
+      </p>
+    </div>
+    
+    <div class="bet-summary">
+      <div class="stat-card">
+        <div class="stat-value" id="total-bets">0</div>
+        <div class="stat-label">Apuestas totales</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="win-rate">0%</div>
+        <div class="stat-label">Tasa de acierto</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="total-profit">0</div>
+        <div class="stat-label">Beneficio total</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="roi">0%</div>
+        <div class="stat-label">ROI</div>
+      </div>
+    </div>
+    
+    <div class="bet-journal-container">
+      <div class="bet-form">
+        <h3><i class="fas fa-plus-circle"></i> Nueva Apuesta</h3>
+        
+        <div class="filter-group">
+          <label class="filter-label">Equipo</label>
+          <select id="bet-team" class="filter-input">
+            <option value="">Selecciona un equipo</option>
+          </select>
+        </div>
+        
+        <div class="filter-group">
+          <label class="filter-label">Tipo de apuesta</label>
+          <select id="bet-type" class="filter-input">
+            <option value="moneyline">Moneyline</option>
+            <option value="spread">Spread</option>
+            <option value="total">Total (Over/Under)</option>
+            <option value="prop">Propuesta</option>
+          </select>
+        </div>
+        
+        <div class="filter-group">
+          <label class="filter-label">Detalles</label>
+          <input type="text" id="bet-details" class="filter-input" placeholder="Ej: Over 210.5, +3.5, etc.">
+        </div>
+        
+        <div class="filter-group">
+          <label class="filter-label">Cuotas</label>
+          <input type="number" id="bet-odds" class="filter-input" placeholder="Ej: 1.90" step="0.01" min="1.01">
+        </div>
+        
+        <div class="filter-group">
+          <label class="filter-label">Stake ($)</label>
+          <input type="number" id="bet-stake" class="filter-input" placeholder="Cantidad apostada">
+        </div>
+        
+        <div class="filter-group">
+          <label class="filter-label">Bankroll ($)</label>
+          <input type="number" id="bet-bankroll" class="filter-input" placeholder="Tu bankroll actual">
+        </div>
+        
+        <div class="filter-group">
+          <label class="filter-label">Probabilidad estimada (%)</label>
+          <input type="number" id="bet-probability" class="filter-input" placeholder="Tu estimación de éxito" min="1" max="99">
+        </div>
+        
+        <div class="kelly-stats">
+          <h4><i class="fas fa-calculator"></i> Criterio de Kelly</h4>
+          <p>Stake recomendado: <span class="kelly-value" id="kelly-stake">0%</span></p>
+          <p>Cantidad recomendada: $<span id="kelly-amount">0.00</span></p>
+        </div>
+        
+        <div class="filter-group">
+          <label class="filter-label">Resultado</label>
+          <select id="bet-result" class="filter-input">
+            <option value="pending">Pendiente</option>
+            <option value="win">Ganada</option>
+            <option value="loss">Perdida</option>
+            <option value="push">Push/Empate</option>
+          </select>
+        </div>
+        
+        <div class="filter-group">
+          <label class="filter-label">Notas</label>
+          <textarea id="bet-notes" class="filter-input" rows="3" placeholder="Observaciones, lecciones aprendidas..."></textarea>
+        </div>
+        
+        <button class="refresh-btn" id="save-bet" style="margin-top: 15px;">
+          <i class="fas fa-save"></i> Guardar Apuesta
+        </button>
+      </div>
+      
+      <div class="bet-list">
+        <div class="bet-filter">
+          <select id="filter-status" class="filter-input">
+            <option value="all">Todas las apuestas</option>
+            <option value="win">Ganadas</option>
+            <option value="loss">Perdidas</option>
+            <option value="pending">Pendientes</option>
+          </select>
+        </div>
+        
+        <div id="bets-container">
+          <!-- Las apuestas se cargarán aquí -->
+          <div class="no-data">
+            <i class="fas fa-book-open"></i>
+            <p>No hay apuestas registradas aún</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // Llenar el selector de equipos
+  fillTeamFilter('bet-team');
+  
+  // Cargar apuestas guardadas
+  loadSavedBets();
+  
+  // Configurar event listeners
+  setupBetJournalListeners();
+}
+
+function setupBetJournalListeners() {
+  // Calcular stake de Kelly cuando cambien los inputs relevantes
+  document.getElementById('bet-odds').addEventListener('input', calculateKelly);
+  document.getElementById('bet-probability').addEventListener('input', calculateKelly);
+  document.getElementById('bet-bankroll').addEventListener('input', calculateKelly);
+  
+  // Guardar nueva apuesta
+  document.getElementById('save-bet').addEventListener('click', saveNewBet);
+  
+  // Filtrar apuestas
+  document.getElementById('filter-status').addEventListener('change', loadSavedBets);
+  
+  // Exportar apuestas
+  document.getElementById('export-bets').addEventListener('click', exportBets);
+}
+
+function calculateKelly() {
+  const odds = parseFloat(document.getElementById('bet-odds').value) || 0;
+  const probability = parseFloat(document.getElementById('bet-probability').value) || 0;
+  const bankroll = parseFloat(document.getElementById('bet-bankroll').value) || 0;
+  
+  if (odds > 0 && probability > 0 && bankroll > 0) {
+    // Fórmula de Kelly: f = (bp - q) / b
+    // donde b = cuotas - 1, p = probabilidad, q = 1 - p
+    const b = odds - 1;
+    const p = probability / 100;
+    const q = 1 - p;
+    const kellyFraction = (b * p - q) / b;
+    
+    // Mostrar resultados
+    const kellyPercentage = Math.max(0, Math.min(kellyFraction * 100, 100)).toFixed(1);
+    const kellyAmount = (bankroll * kellyFraction).toFixed(2);
+    
+    document.getElementById('kelly-stake').textContent = `${kellyPercentage}%`;
+    document.getElementById('kelly-amount').textContent = kellyAmount;
+  }
+}
+
+function saveNewBet() {
+  const teamAbbr = document.getElementById('bet-team').value;
+  if (!teamAbbr) {
+    showError("Selecciona un equipo");
+    return;
+  }
+  
+  const betData = {
+    id: Date.now().toString(),
+    date: new Date().toISOString(),
+    team: teamAbbr,
+    type: document.getElementById('bet-type').value,
+    details: document.getElementById('bet-details').value,
+    odds: parseFloat(document.getElementById('bet-odds').value),
+    stake: parseFloat(document.getElementById('bet-stake').value),
+    bankroll: parseFloat(document.getElementById('bet-bankroll').value),
+    probability: parseFloat(document.getElementById('bet-probability').value),
+    result: document.getElementById('bet-result').value,
+    notes: document.getElementById('bet-notes').value,
+    kellyStake: document.getElementById('kelly-stake').textContent,
+    kellyAmount: document.getElementById('kelly-amount').textContent.replace('$', '')
+  };
+  
+  // Validar datos
+  if (isNaN(betData.odds)) {
+    showError("Ingresa cuotas válidas");
+    return;
+  }
+  
+  if (isNaN(betData.stake)) {
+    showError("Ingresa un stake válido");
+    return;
+  }
+  
+  // Obtener apuestas existentes
+  const savedBets = JSON.parse(localStorage.getItem('nba_bet_journal')) || [];
+  
+  // Añadir nueva apuesta
+  savedBets.unshift(betData);
+  
+  // Guardar en localStorage
+  localStorage.setItem('nba_bet_journal', JSON.stringify(savedBets));
+  
+  // Recargar lista
+  loadSavedBets();
+  
+  // Mostrar confirmación
+  showToast("Apuesta guardada correctamente", "success");
+  
+  // Limpiar formulario (excepto bankroll)
+  document.getElementById('bet-details').value = '';
+  document.getElementById('bet-odds').value = '';
+  document.getElementById('bet-stake').value = '';
+  document.getElementById('bet-probability').value = '';
+  document.getElementById('bet-notes').value = '';
+}
+
+function loadSavedBets() {
+  const savedBets = JSON.parse(localStorage.getItem('nba_bet_journal')) || [];
+  const filterStatus = document.getElementById('filter-status').value;
+  
+  // Filtrar apuestas según el estado seleccionado
+  let filteredBets = savedBets;
+  if (filterStatus !== 'all') {
+    filteredBets = savedBets.filter(bet => bet.result === filterStatus);
+  }
+  
+  // Actualizar estadísticas
+  updateBetStats(savedBets);
+  
+  // Mostrar apuestas
+  const container = document.getElementById('bets-container');
+  
+  if (filteredBets.length === 0) {
+    container.innerHTML = `
+      <div class="no-data">
+        <i class="fas fa-book-open"></i>
+        <p>No hay apuestas ${filterStatus === 'all' ? '' : filterStatus} registradas</p>
+      </div>
+    `;
+    return;
+  }
+  
+  container.innerHTML = '';
+  
+  filteredBets.forEach(bet => {
+    const team = allTeams.find(t => t.abbreviation === bet.team) || { displayName: bet.team, abbreviation: bet.team };
+    const profit = bet.result === 'win' ? (bet.stake * bet.odds - bet.stake) : 
+                  bet.result === 'loss' ? -bet.stake : 0;
+    
+    const betCard = document.createElement('div');
+    betCard.className = `bet-card ${bet.result}`;
+    betCard.innerHTML = `
+      <div class="bet-header">
+        <div class="bet-team">
+          <img src="${teamLogos[bet.team] || ''}" alt="${team.displayName}" class="team-logo" style="width: 24px; height: 24px;">
+          <span>${team.displayName}</span>
+        </div>
+        <div class="bet-amount ${bet.result === 'win' ? 'win' : bet.result === 'loss' ? 'loss' : ''}">
+          ${profit > 0 ? '+' : ''}${profit.toFixed(2)}
+        </div>
+      </div>
+      
+      <div class="bet-details">
+        <div class="bet-detail">
+          <strong>Tipo:</strong> ${formatBetType(bet.type)}
+        </div>
+        <div class="bet-detail">
+          <strong>Detalles:</strong> ${bet.details || 'N/A'}
+        </div>
+        <div class="bet-detail">
+          <strong>Cuotas:</strong> ${bet.odds.toFixed(2)}
+        </div>
+        <div class="bet-detail">
+          <strong>Stake:</strong> $${bet.stake.toFixed(2)}
+        </div>
+        <div class="bet-detail">
+          <strong>Probabilidad:</strong> ${bet.probability}%
+        </div>
+        <div class="bet-detail">
+          <strong>Kelly:</strong> ${bet.kellyStake}
+        </div>
+      </div>
+      
+      <div class="bet-detail">
+        <strong>Notas:</strong> ${bet.notes || 'Sin notas'}
+      </div>
+      
+      <div class="bet-actions">
+        <button class="refresh-btn" style="padding: 5px 10px; font-size: 0.8rem;" data-bet-id="${bet.id}" data-action="edit">
+          <i class="fas fa-edit"></i> Editar
+        </button>
+        <button class="refresh-btn" style="padding: 5px 10px; font-size: 0.8rem; background-color: var(--loss-color);" data-bet-id="${bet.id}" data-action="delete">
+          <i class="fas fa-trash"></i> Eliminar
+        </button>
+      </div>
+    `;
+    
+    container.appendChild(betCard);
+  });
+  
+  // Configurar event listeners para los botones de acción
+  document.querySelectorAll('[data-action="edit"]').forEach(btn => {
+    btn.addEventListener('click', () => editBet(btn.dataset.betId));
+  });
+  
+  document.querySelectorAll('[data-action="delete"]').forEach(btn => {
+    btn.addEventListener('click', () => deleteBet(btn.dataset.betId));
+  });
+}
+
+function formatBetType(type) {
+  const types = {
+    'moneyline': 'Moneyline',
+    'spread': 'Spread',
+    'total': 'Total',
+    'prop': 'Propuesta'
+  };
+  return types[type] || type;
+}
+
+function updateBetStats(bets) {
+  const totalBets = bets.length;
+  const wonBets = bets.filter(bet => bet.result === 'win').length;
+  const lostBets = bets.filter(bet => bet.result === 'loss').length;
+  const pendingBets = bets.filter(bet => bet.result === 'pending').length;
+  
+  const winRate = totalBets > 0 ? (wonBets / (wonBets + lostBets)) * 100 : 0;
+  const totalProfit = bets.reduce((sum, bet) => {
+    if (bet.result === 'win') return sum + (bet.stake * bet.odds - bet.stake);
+    if (bet.result === 'loss') return sum - bet.stake;
+    return sum;
+  }, 0);
+  
+  const totalInvested = bets.reduce((sum, bet) => sum + bet.stake, 0);
+  const roi = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0;
+  
+  // Actualizar UI
+  document.getElementById('total-bets').textContent = totalBets;
+  document.getElementById('win-rate').textContent = `${winRate.toFixed(1)}%`;
+  document.getElementById('total-profit').textContent = `${totalProfit >= 0 ? '+' : ''}${totalProfit.toFixed(2)}`;
+  document.getElementById('roi').textContent = `${roi.toFixed(1)}%`;
+}
+
+function editBet(betId) {
+  const savedBets = JSON.parse(localStorage.getItem('nba_bet_journal')) || [];
+  const bet = savedBets.find(b => b.id === betId);
+  
+  if (!bet) {
+    showError("No se encontró la apuesta para editar");
+    return;
+  }
+  
+  // Llenar formulario con los datos de la apuesta
+  document.getElementById('bet-team').value = bet.team;
+  document.getElementById('bet-type').value = bet.type;
+  document.getElementById('bet-details').value = bet.details;
+  document.getElementById('bet-odds').value = bet.odds;
+  document.getElementById('bet-stake').value = bet.stake;
+  document.getElementById('bet-bankroll').value = bet.bankroll;
+  document.getElementById('bet-probability').value = bet.probability;
+  document.getElementById('bet-result').value = bet.result;
+  document.getElementById('bet-notes').value = bet.notes;
+  
+  // Calcular Kelly nuevamente
+  calculateKelly();
+  
+  // Eliminar la apuesta original
+  deleteBet(betId, false);
+  
+  // Desplazarse al formulario
+  document.getElementById('bet-team').scrollIntoView({ behavior: 'smooth' });
+}
+
+function deleteBet(betId, showToast = true) {
+  const savedBets = JSON.parse(localStorage.getItem('nba_bet_journal')) || [];
+  const updatedBets = savedBets.filter(b => b.id !== betId);
+  
+  localStorage.setItem('nba_bet_journal', JSON.stringify(updatedBets));
+  loadSavedBets();
+  
+  if (showToast) {
+    showToast("Apuesta eliminada", "success");
+  }
+}
+
+function exportBets() {
+  const savedBets = JSON.parse(localStorage.getItem('nba_bet_journal')) || [];
+  
+  if (savedBets.length === 0) {
+    showError("No hay apuestas para exportar");
+    return;
+  }
+  
+  // Convertir a CSV
+  let csv = 'Fecha,Equipo,Tipo,Detalles,Cuotas,Stake,Bankroll,Probabilidad,Kelly,Resultado,Beneficio,Notas\n';
+  
+  savedBets.forEach(bet => {
+    const team = allTeams.find(t => t.abbreviation === bet.team) || { displayName: bet.team };
+    const profit = bet.result === 'win' ? (bet.stake * bet.odds - bet.stake) : 
+                  bet.result === 'loss' ? -bet.stake : 0;
+    
+    csv += `"${new Date(bet.date).toLocaleString()}","${team.displayName}","${formatBetType(bet.type)}","${bet.details || ''}",`;
+    csv += `${bet.odds},${bet.stake},${bet.bankroll},${bet.probability},"${bet.kellyStake}","${bet.result}",`;
+    csv += `${profit},"${bet.notes || ''}"\n`;
+  });
+  
+  // Crear archivo y descargar
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `nba_bet_journal_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  
+  showToast("Apuestas exportadas como CSV", "success");
 }
 
 // 2. PARTIDOS HISTÓRICOS
@@ -814,7 +1281,6 @@ async function loadProbabilities(container) {
           </tr>
         </thead>
         <tbody id="teams-regression">
-          <!-- Los datos se cargarán aquí -->
         </tbody>
       </table>
     </div>
@@ -836,7 +1302,6 @@ async function loadProbabilities(container) {
           </tr>
         </thead>
         <tbody id="regression-games-data">
-          <!-- Los datos se cargarán aquí -->
         </tbody>
       </table>
     </div>
@@ -854,22 +1319,14 @@ async function loadProbabilities(container) {
   fillTeamFilter('prob-team');
   
   // Configurar event listeners
-  document.getElementById('refresh-probabilities').addEventListener('click', async () => {
-    const loadingDiv = document.getElementById('regression-loading');
-    loadingDiv.style.display = 'block';
-    try {
-      await calculateAllRegressions(true); // true fuerza la actualización
-    } catch (error) {
-      console.error("Error al actualizar modelos:", error);
-      showError("Error al actualizar los modelos");
-    } finally {
-      loadingDiv.style.display = 'none';
-    }
+  document.getElementById('refresh-probabilities').addEventListener('click', () => {
+    calculateAllRegressions(true); // true fuerza la actualización
   });
   
   document.getElementById('prob-team').addEventListener('change', async () => {
     const loadingDiv = document.getElementById('regression-loading');
     loadingDiv.style.display = 'block';
+    
     try {
       await updateRegressionData();
     } catch (error) {
@@ -879,6 +1336,9 @@ async function loadProbabilities(container) {
       loadingDiv.style.display = 'none';
     }
   });
+  
+  document.getElementById('prob-start-date').addEventListener('change', calculateAllRegressions);
+  document.getElementById('prob-end-date').addEventListener('change', calculateAllRegressions);
   
   document.getElementById('run-backtest-from-regression').addEventListener('click', async () => {
     const teamAbbr = document.getElementById('prob-team').value;
@@ -913,26 +1373,8 @@ async function loadProbabilities(container) {
     document.getElementById('run-backtest').click();
   });
   
-  // Mostrar datos existentes si los hay, sin recalcular
-  if (regressionCache.data) {
-    displayRegressionStats(regressionCache.data.teamStats);
-    updateLastUpdatedText();
-    
-    const selectedTeam = document.getElementById('prob-team')?.value;
-    if (selectedTeam && regressionCache.data.regressionModels[selectedTeam]) {
-      currentRegressionData = regressionCache.data.regressionModels[selectedTeam];
-      updateRegressionData();
-    }
-  } else {
-    // Si no hay datos en caché, mostrar estado vacío
-    document.getElementById('teams-regression').innerHTML = `
-      <tr>
-        <td colspan="7" style="text-align: center;">
-          <p>No hay datos cargados. Haz clic en "Actualizar Modelos" para comenzar.</p>
-        </td>
-      </tr>
-    `;
-  }
+  // Calcular regresiones iniciales (usando caché si está disponible)
+  await calculateAllRegressions(false);
 }
 
 // Función auxiliar para llenar el filtro de equipos
@@ -954,56 +1396,90 @@ function fillTeamFilter(selectId) {
 }
 
 async function calculateAllRegressions(forceRefresh = false) {
-  const startDate = document.getElementById('prob-start-date')?.value;
-  const endDate = document.getElementById('prob-end-date')?.value;
-  const statsContainer = document.getElementById('teams-regression');
+  // Mostrar modal de carga completo
+  const loadingMessage = `
+    <div class="fullscreen-loading">
+      <div class="loading-content">
+        <div class="spinner large"></div>
+        <h3>Cargando modelos de regresión</h3>
+        <p>Estamos procesando los datos históricos. Esto puede tomar unos minutos...</p>
+        <div class="progress-container">
+          <div class="progress-bar" id="progress-bar"></div>
+          <div class="progress-text" id="progress-text">Preparando...</div>
+        </div>
+        <div id="progress-detail" class="progress-detail"></div>
+      </div>
+    </div>
+  `;
   
-  // Verificar caché (si no se fuerza actualización)
-  const now = new Date();
-  const cacheThreshold = new Date(now.getTime() - CACHE_DURATION);
-  
-  if (!forceRefresh && regressionCache.data && regressionCache.lastUpdated > cacheThreshold) {
-    console.log("Usando datos en caché sin recálculo...");
-    displayRegressionStats(regressionCache.data.teamStats);
-    
-    const selectedTeam = document.getElementById('prob-team')?.value;
-    if (selectedTeam && regressionCache.data.regressionModels[selectedTeam]) {
-      currentRegressionData = regressionCache.data.regressionModels[selectedTeam];
-      updateRegressionData();
-    }
-    
-    updateLastUpdatedText();
-    return;
-  }
-  
-  // Mostrar spinner solo si no hay datos en caché o se fuerza actualización
-  if (!regressionCache.data || forceRefresh) {
-    statsContainer.innerHTML = '<tr><td colspan="7" style="text-align: center;"><div class="spinner"></div></td></tr>';
-  }
-  
-  if (!startDate || !endDate) {
-    showError("Por favor selecciona ambas fechas");
-    return;
-  }
-  
-  if (new Date(startDate) > new Date(endDate)) {
-    showError("La fecha inicial debe ser anterior a la fecha final");
-    return;
-  }
+  document.body.insertAdjacentHTML('beforeend', loadingMessage);
   
   try {
-    const dateRange = getDatesBetween(startDate, endDate);
-    const allGames = [];
-    const loadingToast = showToast("Cargando datos históricos...", "info");
+    const startDate = document.getElementById('prob-start-date')?.value;
+    const endDate = document.getElementById('prob-end-date')?.value;
+    const statsContainer = document.getElementById('teams-regression');
     
-    // Mostrar progreso para muchos días
-    if (dateRange.length > 30) {
-      showToast(`Analizando ${dateRange.length} días de partidos...`, "info");
+    // Obtener elementos del progreso
+    const progressBar = document.getElementById('progress-bar');
+    const progressText = document.getElementById('progress-text');
+    const progressDetail = document.getElementById('progress-detail');
+    
+    // Función para actualizar progreso
+    const updateProgress = (percent, message, detail = '') => {
+      if (progressBar) progressBar.style.width = `${percent}%`;
+      if (progressText) progressText.textContent = message;
+      if (progressDetail) progressDetail.textContent = detail;
+    };
+    
+    updateProgress(0, "Iniciando análisis...", "Verificando datos necesarios");
+    
+    // Verificar caché (si no se fuerza actualización)
+    const now = new Date();
+    const cacheThreshold = new Date(now.getTime() - CACHE_DURATION);
+    
+    if (!forceRefresh && regressionCache.data && regressionCache.lastUpdated > cacheThreshold) {
+      updateProgress(100, "Usando datos en caché", "Los datos están actualizados");
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      displayRegressionStats(regressionCache.data.teamStats);
+      
+      const selectedTeam = document.getElementById('prob-team')?.value;
+      if (selectedTeam && regressionCache.data.regressionModels[selectedTeam]) {
+        currentRegressionData = regressionCache.data.regressionModels[selectedTeam];
+        updateRegressionData();
+      }
+      
+      updateLastUpdatedText();
+      return;
     }
     
+    updateProgress(5, "Preparando datos...", "Obteniendo rango de fechas");
+    
+    if (!startDate || !endDate) {
+      showError("Por favor selecciona ambas fechas");
+      return;
+    }
+    
+    if (new Date(startDate) > new Date(endDate)) {
+      showError("La fecha inicial debe ser anterior a la fecha final");
+      return;
+    }
+    
+    const dateRange = getDatesBetween(startDate, endDate);
+    const allGames = [];
+    
+    updateProgress(10, "Recopilando partidos...", `Analizando ${dateRange.length} días de partidos`);
+    
     // Recopilar todos los juegos en el rango de fechas
-    for (const date of dateRange) {
+    for (let i = 0; i < dateRange.length; i++) {
+      const date = dateRange[i];
       try {
+        updateProgress(
+          10 + Math.floor((i / dateRange.length) * 40), 
+          `Procesando datos históricos...`, 
+          `Fecha ${i+1} de ${dateRange.length}: ${formatReadableDate(date)}`
+        );
+        
         const games = await fetchGamesForDate(date);
         allGames.push(...games);
       } catch (error) {
@@ -1011,33 +1487,37 @@ async function calculateAllRegressions(forceRefresh = false) {
       }
     }
     
+    updateProgress(50, "Analizando equipos...", `Procesando ${allTeams.length} equipos`);
+    
     // Procesar modelos para cada equipo
-    const newRegressionModels = {};
+    regressionModels = {};
     const teamStats = [];
     const teamProcessingPromises = [];
     
-    allTeams.forEach(team => {
+    allTeams.forEach((team, index) => {
       teamProcessingPromises.push(
-        new Promise(resolve => {
-          setTimeout(async () => { // Pequeño delay para evitar bloqueo
+        new Promise(async resolve => {
+          setTimeout(async () => {
+            const percent = 50 + Math.floor((index / allTeams.length) * 45);
+            updateProgress(
+              percent,
+              `Analizando equipos...`,
+              `${team.displayName} (${index+1}/${allTeams.length})`
+            );
+            
             const teamGames = allGames.filter(game => 
               game.homeTeam.abbreviation === team.abbreviation || 
               game.awayTeam.abbreviation === team.abbreviation
             );
             
-            if (teamGames.length > 10) { // Mínimo 10 partidos para análisis
-              // Usar modelo existente si está disponible y no se fuerza actualización
-              if (!forceRefresh && regressionModels[team.abbreviation]) {
-                newRegressionModels[team.abbreviation] = regressionModels[team.abbreviation];
-                teamStats.push(regressionModels[team.abbreviation]);
-              } else {
-                const model = calculateTeamRegression(team, teamGames);
-                if (model) {
-                  newRegressionModels[team.abbreviation] = model;
-                  teamStats.push(model);
-                }
+            if (teamGames.length > 10) {
+              const model = calculateTeamRegression(team, teamGames);
+              if (model) {
+                regressionModels[team.abbreviation] = model;
+                teamStats.push(model);
               }
             }
+            
             resolve();
           }, 0);
         })
@@ -1046,39 +1526,30 @@ async function calculateAllRegressions(forceRefresh = false) {
     
     await Promise.all(teamProcessingPromises);
     
-    // Ordenar equipos por calidad del modelo (R²)
-    teamStats.sort((a, b) => b.r2 - a.r2);
+    updateProgress(95, "Guardando resultados...", "Preparando datos para visualización");
     
     // Actualizar la caché
     regressionCache = {
       lastUpdated: new Date(),
       data: {
         teamStats,
-        regressionModels: newRegressionModels
+        regressionModels
       }
     };
-    
-    // Actualizar los modelos globales
-    regressionModels = newRegressionModels;
     
     // Mostrar resultados
     displayRegressionStats(teamStats);
     updateLastUpdatedText();
     
-    // Actualizar datos del equipo seleccionado si existe
-    const selectedTeam = document.getElementById('prob-team')?.value;
-    if (selectedTeam && regressionModels[selectedTeam]) {
-      currentRegressionData = regressionModels[selectedTeam];
-      updateRegressionData();
-    }
-    
-    showToast("Modelos actualizados correctamente", "success");
+    updateProgress(100, "¡Análisis completado!", "Los modelos están listos");
+    await new Promise(resolve => setTimeout(resolve, 1000));
     
   } catch (error) {
     console.error("Error calculating regressions:", error);
-    showError("Error al calcular los modelos. Intenta nuevamente.");
+    updateProgress(100, "Error en el análisis", "Usando datos de caché si están disponibles");
+    await new Promise(resolve => setTimeout(resolve, 2000));
     
-    // Si hay un error pero tenemos datos en caché, usarlos
+    // Si hay datos en caché, usarlos
     if (regressionCache.data) {
       showToast("Usando datos en caché debido al error", "warning");
       displayRegressionStats(regressionCache.data.teamStats);
@@ -1088,14 +1559,21 @@ async function calculateAllRegressions(forceRefresh = false) {
         currentRegressionData = regressionCache.data.regressionModels[selectedTeam];
         updateRegressionData();
       }
+    } else {
+      showError("Error al calcular los modelos. No hay datos en caché disponibles.");
     }
   } finally {
+    // Eliminar el mensaje de carga
+    const loadingElement = document.querySelector('.fullscreen-loading');
+    if (loadingElement) {
+      loadingElement.remove();
+    }
+    
     if (document.getElementById('regression-loading')) {
       document.getElementById('regression-loading').style.display = 'none';
     }
   }
 }
-
 // Función auxiliar para mostrar notificaciones toast
 function showToast(message, type = 'info') {
   const toast = document.createElement('div');
@@ -2930,6 +3408,8 @@ function showNotification(title, options) {
   }
 }
 
+
+
 function monitorLiveGamesForNotifications(games) {
   // Limpiar temporizadores anteriores para juegos que ya no están activos
   Object.keys(notificationTimers).forEach(gameId => {
@@ -2981,9 +3461,316 @@ function monitorLiveGamesForNotifications(games) {
   });
 }
 
+function renderJournalEntries() {
+  const container = document.getElementById('entries-list');
+  container.innerHTML = '';
+  
+  if (bettingJournal.length === 0) {
+    container.innerHTML = `
+      <div class="no-entries">
+        <i class="fas fa-book-open"></i>
+        <p>No hay entradas en el diario</p>
+      </div>
+    `;
+    return;
+  }
+  
+  bettingJournal.sort((a, b) => new Date(b.date) - new Date(a.date)).forEach(entry => {
+    const entryElement = document.createElement('div');
+    entryElement.className = 'journal-entry';
+    entryElement.innerHTML = `
+      <div class="entry-header">
+        <div class="entry-date">${formatReadableDate(entry.date)}</div>
+        <div class="entry-actions">
+          <button class="edit-entry" data-id="${entry.id}"><i class="fas fa-edit"></i></button>
+          <button class="delete-entry" data-id="${entry.id}"><i class="fas fa-trash"></i></button>
+        </div>
+      </div>
+      <div class="entry-content">
+        <div class="entry-game">
+          <span class="team">${entry.awayTeam}</span> vs 
+          <span class="team">${entry.homeTeam}</span>
+        </div>
+        <div class="entry-details">
+          <div><strong>Tipo:</strong> ${entry.betType}</div>
+          <div><strong>Cuota:</strong> ${entry.odds}</div>
+          <div><strong>Monto:</strong> $${entry.amount}</div>
+          <div><strong>Resultado:</strong> 
+            <span class="${entry.result === 'Ganada' ? 'win' : 'loss'}">${entry.result}</span>
+          </div>
+          <div><strong>Notas:</strong> ${entry.notes || 'N/A'}</div>
+        </div>
+      </div>
+    `;
+    container.appendChild(entryElement);
+  });
+
+  document.querySelectorAll('.edit-entry').forEach(btn => {
+    btn.addEventListener('click', (e) => editEntry(e.target.closest('button').dataset.id));
+  });
+  
+  document.querySelectorAll('.delete-entry').forEach(btn => {
+    btn.addEventListener('click', (e) => deleteEntry(e.target.closest('button').dataset.id));
+  });
+}
+
+function calculateKellyStats() {
+  if (bettingJournal.length === 0) return;
+  
+  const wins = bettingJournal.filter(e => e.result === 'Ganada').length;
+  const losses = bettingJournal.filter(e => e.result === 'Perdida').length;
+  const total = wins + losses;
+  const winRate = wins / total;
+  
+  const profit = bettingJournal.reduce((sum, entry) => {
+    return entry.result === 'Ganada' ? sum + (entry.amount * entry.odds - entry.amount) : sum - entry.amount;
+  }, 0);
+  
+  const avgOdds = bettingJournal.reduce((sum, entry) => sum + parseFloat(entry.odds), 0) / bettingJournal.length;
+  
+  const b = avgOdds - 1;
+  const p = winRate;
+  const q = 1 - p;
+  const kellyFraction = (b * p - q) / b;
+  
+  kellyCalculations = {
+    winRate: (winRate * 100).toFixed(1),
+    profit: profit.toFixed(2),
+    avgOdds: avgOdds.toFixed(2),
+    kellyFraction: (kellyFraction * 100).toFixed(1),
+    totalBets: total,
+    wins,
+    losses
+  };
+  
+  renderKellyStats();
+  renderKellyChart();
+}
+
+function renderKellyStats() {
+  const container = document.getElementById('kelly-stats');
+  container.innerHTML = `
+    <div class="stat-card">
+      <div class="stat-value">${kellyCalculations.winRate}%</div>
+      <div class="stat-label">Tasa de acierto</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">$${kellyCalculations.profit}</div>
+      <div class="stat-label">Beneficio neto</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">${kellyCalculations.avgOdds}</div>
+      <div class="stat-label">Cuota promedio</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">${kellyCalculations.kellyFraction}%</div>
+      <div class="stat-label">Fracción Kelly</div>
+    </div>
+  `;
+}
+
+function renderKellyChart() {
+  const ctx = document.getElementById('kelly-chart').getContext('2d');
+  
+  if (window.kellyChart) {
+    window.kellyChart.destroy();
+  }
+  
+  window.kellyChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Ganadas', 'Perdidas'],
+      datasets: [{
+        data: [kellyCalculations.wins, kellyCalculations.losses],
+        backgroundColor: ['#4CAF50', '#F44336'],
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {
+          position: 'bottom'
+        },
+        title: {
+          display: true,
+          text: 'Rendimiento de Apuestas'
+        }
+      }
+    }
+  });
+}
+
+function showNewEntryForm(gameData = null) {
+  const modal = document.getElementById('saveGameModal');
+  const modalContent = document.getElementById('save-game-content');
+  
+  modalContent.innerHTML = `
+    <form id="journal-form">
+      <div class="form-group">
+        <label>Partido</label>
+        <input type="text" id="entry-game" class="form-input" 
+               value="${gameData ? `${gameData.awayTeam.displayName} vs ${gameData.homeTeam.displayName}` : ''}" required>
+      </div>
+      
+      <div class="form-row">
+        <div class="form-group">
+          <label>Tipo de apuesta</label>
+          <select id="entry-type" class="form-input" required>
+            <option value="">Seleccionar</option>
+            <option value="Moneyline">Moneyline</option>
+            <option value="Puntos Totales">Puntos Totales</option>
+            <option value="Hándicap">Hándicap</option>
+            <option value="Otra">Otra</option>
+          </select>
+        </div>
+        
+        <div class="form-group">
+          <label>Cuota</label>
+          <input type="number" id="entry-odds" class="form-input" step="0.01" min="1.01" required>
+        </div>
+      </div>
+      
+      <div class="form-row">
+        <div class="form-group">
+          <label>Monto ($)</label>
+          <input type="number" id="entry-amount" class="form-input" min="1" required>
+        </div>
+        
+        <div class="form-group">
+          <label>Resultado</label>
+          <select id="entry-result" class="form-input" required>
+            <option value="">Seleccionar</option>
+            <option value="Ganada">Ganada</option>
+            <option value="Perdida">Perdida</option>
+            <option value="Pendiente">Pendiente</option>
+          </select>
+        </div>
+      </div>
+      
+      <div class="form-group">
+        <label>Notas</label>
+        <textarea id="entry-notes" class="form-input" rows="3"></textarea>
+      </div>
+      
+      <div class="form-actions">
+        <button type="button" class="refresh-btn" id="cancel-entry">Cancelar</button>
+        <button type="submit" class="refresh-btn" style="background-color: #4CAF50;">Guardar</button>
+      </div>
+    </form>
+  `;
+  
+  document.getElementById('cancel-entry').addEventListener('click', () => {
+    modal.style.display = 'none';
+  });
+  
+  document.getElementById('journal-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    saveJournalEntry(gameData);
+  });
+  
+  modal.style.display = 'block';
+}
+
+function saveJournalEntry(gameData) {
+  const form = document.getElementById('journal-form');
+  const entry = {
+    id: Date.now().toString(),
+    date: gameData?.date || formatDateForAPI(new Date()),
+    awayTeam: gameData?.awayTeam?.displayName || document.getElementById('entry-game').value.split(' vs ')[0],
+    homeTeam: gameData?.homeTeam?.displayName || document.getElementById('entry-game').value.split(' vs ')[1],
+    betType: document.getElementById('entry-type').value,
+    odds: parseFloat(document.getElementById('entry-odds').value),
+    amount: parseFloat(document.getElementById('entry-amount').value),
+    result: document.getElementById('entry-result').value,
+    notes: document.getElementById('entry-notes').value
+  };
+  
+  bettingJournal.push(entry);
+  localStorage.setItem('bettingJournal', JSON.stringify(bettingJournal));
+  
+  document.getElementById('saveGameModal').style.display = 'none';
+  renderJournalEntries();
+  calculateKellyStats();
+  
+  showToast('Entrada guardada exitosamente', 'success');
+}
+
+function editEntry(id) {
+  const entry = bettingJournal.find(e => e.id === id);
+  if (!entry) return;
+  
+  showNewEntryForm();
+  
+  setTimeout(() => {
+    document.getElementById('entry-game').value = `${entry.awayTeam} vs ${entry.homeTeam}`;
+    document.getElementById('entry-type').value = entry.betType;
+    document.getElementById('entry-odds').value = entry.odds;
+    document.getElementById('entry-amount').value = entry.amount;
+    document.getElementById('entry-result').value = entry.result;
+    document.getElementById('entry-notes').value = entry.notes || '';
+    
+    const form = document.getElementById('journal-form');
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      updateJournalEntry(id);
+    };
+    form.querySelector('button[type="submit"]').textContent = 'Actualizar';
+  }, 100);
+}
+
+function updateJournalEntry(id) {
+  const index = bettingJournal.findIndex(e => e.id === id);
+  if (index === -1) return;
+  
+  const form = document.getElementById('journal-form');
+  bettingJournal[index] = {
+    ...bettingJournal[index],
+    betType: document.getElementById('entry-type').value,
+    odds: parseFloat(document.getElementById('entry-odds').value),
+    amount: parseFloat(document.getElementById('entry-amount').value),
+    result: document.getElementById('entry-result').value,
+    notes: document.getElementById('entry-notes').value
+  };
+  
+  localStorage.setItem('bettingJournal', JSON.stringify(bettingJournal));
+  document.getElementById('saveGameModal').style.display = 'none';
+  renderJournalEntries();
+  calculateKellyStats();
+  
+  showToast('Entrada actualizada exitosamente', 'success');
+}
+
+function deleteEntry(id) {
+  if (!confirm('¿Estás seguro de eliminar esta entrada?')) return;
+  
+  bettingJournal = bettingJournal.filter(e => e.id !== id);
+  localStorage.setItem('bettingJournal', JSON.stringify(bettingJournal));
+  renderJournalEntries();
+  calculateKellyStats();
+  
+  showToast('Entrada eliminada', 'info');
+}
+
+function exportJournal() {
+  const data = JSON.stringify(bettingJournal, null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `diario-apuestas-${new Date().toISOString().split('T')[0]}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+
 function calculateQuarterEndTime(clock) {
   if (!clock) return 0;
   
   const [minutes, seconds] = clock.split(':').map(Number);
   return (minutes * 60 + seconds) * 1000; // Devuelve tiempo en milisegundos
 }
+

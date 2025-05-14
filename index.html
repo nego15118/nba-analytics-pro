@@ -25,6 +25,12 @@
         </a>
       </li> 
       <li class="nav-item">
+      <a href="#" class="nav-link" data-page="bet-journal">
+        <i class="fas fa-book"></i>
+        <span>Diario de Apuestas</span>
+      </a>
+    </li>
+      <li class="nav-item">
         <a href="#" class="nav-link active" data-page="today">
           <i class="fas fa-calendar-day"></i>
           <span>Partidos Hoy</span>
@@ -38,18 +44,6 @@
         </a>
       </li>
       <li class="nav-item">
-        <a href="#" class="nav-link" data-page="probabilities">
-          <i class="fas fa-chart-line"></i>
-          <span>Regresión Lineal</span>
-        </a>
-      </li>
-      <li class="nav-item">
-        <a href="#" class="nav-link" data-page="projection">
-          <i class="fas fa-project-diagram"></i>
-          <span>Proyección</span>
-        </a>
-      </li>
-      <li class="nav-item">
         <a href="#" class="nav-link" data-page="backtesting">
           <i class="fas fa-flask"></i>
           <span>Backtesting</span>
@@ -59,7 +53,7 @@
     <div class="sidebar-footer">
       <div class="version-info">
         <i class="fas fa-code-branch"></i>
-        <span>v1.0.0</span>
+        <span>v1.10.0</span>
       </div>
     </div>
   </nav>
@@ -91,20 +85,46 @@
     </div>
   </footer>
 
-      <!-- Modal for Pre-Game Analysis -->
-<div id="preGameModal" class="modal">
+  <!-- Modal for Pre-Game Analysis -->
+  <div id="preGameModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Análisis Pre-Partido</h3>
+        <span class="close-modal">&times;</span>
+      </div>
+      <div id="modal-analysis-content">
+      !-- Modal de Progreso -->
+      <div id="progressModal" class="modal">
+        <div class="modal-content" style="max-width: 500px;">
+          <div class="modal-header">
+            <h3>Actualizando Modelos de Regresión</h3>
+          </div>
+          <div class="modal-body">
+            <div class="progress-container">
+              <div class="progress-bar" id="progress-bar"></div>
+              <div class="progress-text" id="progress-text">0% completado</div>
+            </div>
+            <div id="progress-detail" style="margin-top: 10px; font-size: 0.9em;"></div>
+          </div>
+        </div>
+      </div>
+
+        <!-- Content will be loaded here dynamically -->
+      </div>
+    </div>
+  </div>
+  <div id="saveGameModal" class="modal">
   <div class="modal-content">
     <div class="modal-header">
-      <h3>Análisis Pre-Partido</h3>
+      <h3>Guardar en Diario</h3>
       <span class="close-modal">&times;</span>
     </div>
-    <div id="modal-analysis-content">
-      <!-- Content will be loaded here dynamically -->
+    <div id="save-game-content">
+      <!-- Contenido se cargará dinámicamente -->
     </div>
   </div>
 </div>
 
   <script src="index.js"></script>
-  
 </body>
 </html>
